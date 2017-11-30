@@ -1,0 +1,9 @@
+说明：
+a.安装步骤
+1.运行安装脚本setup_autostart.sh(该脚本会将agent运行脚本加入到开机启动);
+
+b.运行步骤
+1.开机系统自动调用startagent.sh脚本，该脚本会执行agent程序，在后台运行;
+2.agent程序读取agent_config.ini配置文件，获取配置信息登录后台server;
+3.
+
