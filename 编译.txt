@@ -1,0 +1,12 @@
+±‡“Îª∑æ≥£∫AIX 7.1 64Œª
+
+
+±‡“Îagent(±‡“Îª∑æ≥AIX 7.1)£∫
+gcc -L. -Iinclude -lpthread -lcrypto -lssl -lxml2 -lm -o test main.c thread_pool.c  cryptdatafunc.c ini_config.c
+
+±‡“Îtest:
+gcc -o testagent testagent.c
+
+gcc -o testone testone.c
+
+
