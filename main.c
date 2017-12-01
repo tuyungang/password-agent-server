@@ -1,3 +1,18 @@
+/* *******************************************************
+ * Call Center On Demand Product Series
+ * Copyright (C) 2017 HonDa(Guangzhou.) Technology Ltd., Co.
+ * All right reserved
+ *
+ * @file main.c
+ * @brief 
+ * @author tuyungang
+ * @version v1.0
+ * @date 2017-12-01
+ * 
+ * TODO: main
+ * 
+ * *******************************************************
+ */
 #include "thread_pool.h"
 #include "ini_config.h"
 
@@ -22,8 +37,8 @@ extern char g_CacheFileAbsolutePath[256];
 
 void *StartThreadPool()
 {
-    myproxy_threadpool_conf_t thread_conf = {10,0,0};
-    myproxy_threadpool_t *pool = myproxy_threadpool_init(&thread_conf);
+    agent_threadpool_conf_t thread_conf = {10,0,0};
+    agent_threadpool_t *pool = agent_threadpool_init(&thread_conf);
     if (pool == NULL) {
         return NULL;
     }
@@ -58,7 +73,7 @@ int setnonblocking( int fd )
     return old_option;
 }
 
-void TaskInit(myproxy_task_t *ptask, int sockfd, struct pollfd *pfd)
+void TaskInit(agent_task_t *ptask, int sockfd, struct pollfd *pfd)
 {
     //ptask->DownStreamPfd = pfd;
     ptask->argv = NULL;
@@ -142,14 +157,12 @@ bool GetIniConfig()
 int main(int argc, char **argv)
 {
     bool bRet;
-    //const char *main_ip = "192.168.2.3";
-    //const char *standby_ip = "192.168.2.3";
     CheckIsDirExist();
     GetIniConfig();
 
-    myproxy_threadpool_t *pool = NULL;
+    agent_threadpool_t *pool = NULL;
 REPOOLINIT:
-    pool = (myproxy_threadpool_t *)StartThreadPool();
+    pool = (agent_threadpool_t *)StartThreadPool();
     if (pool == NULL) {
         printf("thread pool init failed, once again!\n");
         goto REPOOLINIT;
@@ -211,9 +224,9 @@ REPOOLINIT:
     ret = listen( m_listenfd, 5 );
     assert( ret >= 0 );
 
-    myproxy_task_t task[TASK_LIMIT];
+    agent_task_t task[TASK_LIMIT];
 
-    int user_counter = 0;
+    int task_counter = 0;
     struct pollfd m_pollfds[USER_LIMIT+1];
     int i;
     for (i = 2; i <= USER_LIMIT; ++i) {
@@ -232,7 +245,7 @@ REPOOLINIT:
     bool m_stop = false;
     while (!m_stop)
     {
-        int ret = poll(m_pollfds, user_counter + 1, -1);
+        int ret = poll(m_pollfds, task_counter + 1, -1);
         if (ret < 0) {
             printf("poll failure\n");
             //Log();
@@ -240,7 +253,7 @@ REPOOLINIT:
             //break;
         }
         int i;
-        for (i = 0; i < user_counter + 1; ++i)
+        for (i = 0; i < task_counter + 1; ++i)
         {
             int sockfd = m_pollfds[i].fd;
             if ((m_pollfds[i].fd == m_listenfd) && ((m_pollfds[i].revents & POLLIN) == POLLIN)) {
@@ -253,7 +266,7 @@ REPOOLINIT:
                     continue;
                 }
 
-                if( user_counter >= MAX_FD )
+                if( task_counter >= MAX_FD )
                 {
                     close(sockfd);
                     send(sockfd, "Internal server busy", strlen("Internal server busy"), 0);
@@ -262,12 +275,12 @@ REPOOLINIT:
                 }
                 
                 SetNonBlocking(connfd);
-                user_counter++;
-                //addfd(m_pollfds[user_counter], connfd);
-                m_pollfds[user_counter].fd = connfd;
-                m_pollfds[user_counter].events = POLLIN | POLLERR | POLLHUP;
-                m_pollfds[user_counter].revents = 0;
-                TaskInit(&task[connfd], connfd, &m_pollfds[user_counter]);
+                task_counter++;
+                //addfd(m_pollfds[task_counter], connfd);
+                m_pollfds[task_counter].fd = connfd;
+                m_pollfds[task_counter].events = POLLIN | POLLERR | POLLHUP;
+                m_pollfds[task_counter].revents = 0;
+                TaskInit(&task[connfd], connfd, &m_pollfds[task_counter]);
                 printf("a client come\n");
                 break;
             }
@@ -286,7 +299,7 @@ REPOOLINIT:
                             case SIGINT:
                             {
                                 m_stop = true;
-                                myproxy_threadpool_destroy(pool);
+                                agent_threadpool_destroy(pool);
                                 break;
                             }
                             default:
@@ -308,27 +321,27 @@ REPOOLINIT:
                 continue;
             }
             else if (m_pollfds[i].revents & POLLHUP) {
-                task[m_pollfds[i].fd] = task[m_pollfds[user_counter].fd];
+                task[m_pollfds[i].fd] = task[m_pollfds[task_counter].fd];
                 if (m_pollfds[i].fd != -1)
                     close(m_pollfds[i].fd);
-                m_pollfds[i] = m_pollfds[user_counter];
+                m_pollfds[i] = m_pollfds[task_counter];
                 i--;
-                user_counter--;
+                task_counter--;
                 printf("a client left %d\n", __LINE__);
             }
             else if (m_pollfds[i].revents & POLLIN) {
                 if (task[sockfd].ReceiveRequest(&task[sockfd], pool)) {
-                    myproxy_threadpool_add_task(pool, NULL, (void*)&(task[sockfd]));
+                    agent_threadpool_add_task(pool, NULL, (void*)&(task[sockfd]));
                 }
                 else
                 {
                     //users[sockfd].close_conn();
-                    task[m_pollfds[i].fd] = task[m_pollfds[user_counter].fd];
+                    task[m_pollfds[i].fd] = task[m_pollfds[task_counter].fd];
                     if (task[m_pollfds[i].fd].sockfd != -1)
                         close(m_pollfds[i].fd);
-                    m_pollfds[i] = m_pollfds[user_counter];
+                    m_pollfds[i] = m_pollfds[task_counter];
                     i--;
-                    user_counter--;
+                    task_counter--;
                     printf("a client left %d\n", __LINE__);
                 }
             }
@@ -352,12 +365,12 @@ REPOOLINIT:
                     nSendLen -= nRealSend;
                 }
                 //memset(m_DownStream_Buffer, '\0', 128);
-                task[m_pollfds[i].fd] = task[m_pollfds[user_counter].fd];
+                task[m_pollfds[i].fd] = task[m_pollfds[task_counter].fd];
                 if (task[m_pollfds[i].fd].sockfd != -1)
                     close(m_pollfds[i].fd);
-                m_pollfds[i] = m_pollfds[user_counter];
+                m_pollfds[i] = m_pollfds[task_counter];
                 i--;
-                user_counter--;
+                task_counter--;
                 //printf("a client left %d\n", __LINE__);
 
             }
