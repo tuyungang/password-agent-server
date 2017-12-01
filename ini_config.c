@@ -1,3 +1,17 @@
+/* *******************************************************
+ * Call Center On Demand Product Series
+ * Copyright (C) 2017 HonDa(Guangzhou.) Technology Ltd., Co.
+ * All right reserved
+ *
+ * @file ini_config.c
+ * @brief 
+ * @author tuyungang
+ * @version v1.0
+ * @date 2017-12-01
+ * 
+ * TODO: 读写ini配置文件
+ * 
+ * *******************************************************/
 #include "ini_config.h"
 //#include "thread_pool.h"
 
