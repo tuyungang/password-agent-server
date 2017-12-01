@@ -1,8 +1,22 @@
+/* *******************************************************
+ * Call Center On Demand Product Series
+ * Copyright (C) 2017 HonDa(Guangzhou.) Technology Ltd., Co.
+ * All right reserved
+ *
+ * @file thread_pool.c
+ * @brief 
+ * @author tuyungang
+ * @version v1.0
+ * @date 2017-12-01
+ * 
+ * TODO: 线程池 
+ * 
+ * *******************************************************/
 #include "thread_pool.h"
 #include "ini_config.h"
 
 char m_DownStream_Buffer[128];
-static myproxy_threadpool_t * POOL = NULL;
+static agent_threadpool_t * POOL = NULL;
 extern char g_LoginName[10];
 extern char g_LoginPassword[128];
 extern char g_MasterIP[32];
@@ -14,6 +28,8 @@ extern char g_CurAbsolutePath[256];
 extern char g_LogAbsolutePath[256];
 extern char g_CacheFileAbsolutePath[256];
 
+static 	pthread_key_t  key;
+
 int SetNonBlocking(int fd)
 {
     int old_option = fcntl( fd, F_GETFL, 0 );
@@ -23,8 +39,7 @@ int SetNonBlocking(int fd)
     return old_option;
 }
 
-
-bool GetPvaFromLocal(myproxy_threadpool_t *pool, char *appID, char *valueID, char *pswOut)
+bool GetPvaFromLocal(agent_threadpool_t *pool, char *appID, char *valueID, char *pswOut)
 {
     if (appID == NULL)
         return false;
@@ -48,7 +63,7 @@ bool GetPvaFromLocal(myproxy_threadpool_t *pool, char *appID, char *valueID, cha
     return true;
 }
 
-bool CheckIsNeedUpdate(myproxy_threadpool_t *pool)
+bool CheckIsNeedUpdate(agent_threadpool_t *pool)
 {
     int n = 0;
     char appID[50] = {0};
@@ -58,7 +73,7 @@ bool CheckIsNeedUpdate(myproxy_threadpool_t *pool)
     pthread_mutex_lock(&pool->LocalPswCacheQueueMutex);
     TAILQ_FOREACH(it, &pool->LocalPswCacheQueue, next) {
         if (it->tmChange != (time_t)0 && it->tmChange + 120 < tmCurrent) {
-            myproxy_task_t task;
+            agent_task_t task;
             //task.DownStreamPfd = NULL;
             task.argv = NULL;
             task.handler = NULL;
@@ -76,7 +91,7 @@ bool CheckIsNeedUpdate(myproxy_threadpool_t *pool)
             //memset(task->SeqNumber, '\0', 32);
             memset(task.UpStreamBuffer, '\0', 1024);
             task.bIsActiveUpdate = true;
-            myproxy_threadpool_add_task(pool, NULL, (void*)&task);
+            agent_threadpool_add_task(pool, NULL, (void*)&task);
             n++;
         }
     }
@@ -94,7 +109,7 @@ bool CheckIsNeedUpdate(myproxy_threadpool_t *pool)
 
 bool UpdateLocalPswCache(void *arg)
 { 
-    myproxy_threadpool_t * pool = (myproxy_threadpool_t*)arg;
+    agent_threadpool_t * pool = (agent_threadpool_t*)arg;
     pthread_mutex_lock(&pool->LocalPswCacheQueueMutex);
     if (TAILQ_EMPTY(&pool->LocalPswCacheQueue)) {
         pthread_mutex_unlock(&pool->LocalPswCacheQueueMutex);
@@ -117,7 +132,7 @@ bool UpdateLocalPswCache(void *arg)
     return true;
 }
 
-bool LoadRawPswCacheFromBinFile(myproxy_threadpool_t *pool)
+bool LoadRawPswCacheFromBinFile(agent_threadpool_t *pool)
 {
     char* pszPvaFile = "pvabuffer.bin";
     FILE* pFile = NULL;
@@ -258,7 +273,7 @@ bool LoadRawPswCacheFromBinFile(myproxy_threadpool_t *pool)
     return true;
 }
 
-bool LoadPswCachedFromDatFile(myproxy_threadpool_t *pool, char *pszErrorInfo)
+bool LoadPswCachedFromDatFile(agent_threadpool_t *pool, char *pszErrorInfo)
 {
     DIR *dirp;
     struct dirent *direntp;
@@ -460,9 +475,9 @@ END:
     return true;
 }
 
-myproxy_threadpool_t* myproxy_threadpool_init(myproxy_threadpool_conf_t *conf)
+agent_threadpool_t* agent_threadpool_init(agent_threadpool_conf_t *conf)
 {
-	myproxy_threadpool_t *pool = NULL;
+	agent_threadpool_t *pool = NULL;
 	//int error_flag_mutex = 0;
 	//int error_flag_cond = 0;
 	//pthread_attr_t attr;
@@ -471,7 +486,7 @@ myproxy_threadpool_t* myproxy_threadpool_init(myproxy_threadpool_conf_t *conf)
 			break;
 		}
 
-		pool = (myproxy_threadpool_t *)malloc(sizeof(myproxy_threadpool_t));
+		pool = (agent_threadpool_t *)malloc(sizeof(agent_threadpool_t));
 		if (pool == NULL){
 			break;
 		}
@@ -653,8 +668,8 @@ RELOADFROMDAT:
 
 bool Req_ReceiveRequest(void *task, void *p)
 {
-    myproxy_task_t *ptask = (myproxy_task_t*)task;
-    myproxy_threadpool_t *pool = (myproxy_threadpool_t *)p;
+    agent_task_t *ptask = (agent_task_t*)task;
+    agent_threadpool_t *pool = (agent_threadpool_t *)p;
     //bool m_downstream_flag = false;
     bool m_error_flag = false;
     int m_downstream_idx = 0;
@@ -743,8 +758,8 @@ NETWORK_OUTLINE:
 
 bool Req_ProcessRequest(void *task, void *p)
 {
-    myproxy_task_t *ptask = (myproxy_task_t *)task;
-    myproxy_threadpool_t *pool = (myproxy_threadpool_t *)p;
+    agent_task_t *ptask = (agent_task_t *)task;
+    agent_threadpool_t *pool = (agent_threadpool_t *)p;
     //bool bRet = SendRequestToUpstream(ptask->lAppID, ptask->szVaultID, &ptask->UpstreamSockfd, ptask->SeqNumber);
     bool bRet = SendRequestToUpstream(ptask->lAppID, ptask->szVaultID, &ptask->UpstreamSockfd);
     if (!bRet) {
@@ -787,10 +802,10 @@ bool Req_ProcessRequest(void *task, void *p)
     return true;
 }
 
-int myproxy_threadpool_add_task(myproxy_threadpool_t *pool, CB_FUN handler, void* argv)
+int agent_threadpool_add_task(agent_threadpool_t *pool, CB_FUN handler, void* argv)
 {
-	myproxy_task_t *task = NULL; 
-    task = (myproxy_task_t *)malloc(sizeof(myproxy_task_t));
+	agent_task_t *task = NULL; 
+    task = (agent_task_t *)malloc(sizeof(agent_task_t));
 	if (task == NULL){
 		return -1;
 	}
@@ -799,24 +814,24 @@ int myproxy_threadpool_add_task(myproxy_threadpool_t *pool, CB_FUN handler, void
         task->argv = argv;
         task->next = NULL;
     } else {
-        //task = (myproxy_task_t*)argv;
-        //task->DownStreamPfd = ((myproxy_task_t*)argv)->DownStreamPfd;
+        //task = (agent_task_t*)argv;
+        //task->DownStreamPfd = ((agent_task_t*)argv)->DownStreamPfd;
         task->argv = NULL;
         task->handler = NULL;
         task->ReceiveRequest = Req_ReceiveRequest;
         task->ProcessRequest = Req_ProcessRequest;
-        task->sockfd = ((myproxy_task_t*)argv)->sockfd;
+        task->sockfd = ((agent_task_t*)argv)->sockfd;
         task->UpstreamSockfd = -1;
-        task->lAppID = ((myproxy_task_t*)argv)->lAppID;
+        task->lAppID = ((agent_task_t*)argv)->lAppID;
         memset(task->szVaultID, '\0', 128);
-        memcpy(task->szVaultID, ((myproxy_task_t*)argv)->szVaultID, strlen(((myproxy_task_t*)argv)->szVaultID));
+        memcpy(task->szVaultID, ((agent_task_t*)argv)->szVaultID, strlen(((agent_task_t*)argv)->szVaultID));
         //memset(task->SeqNumber, '\0', 32);
         memset(task->DownStreamBuffer, '\0', 256);
         memset(task->UpStreamBuffer, '\0', 1024);
-        //task->UpStreamBuffer = ((myproxy_task_t*)argv)->UpStreamBuffer;
-        //task->DownStreamBuffer = ((myproxy_task_t*)argv)->DownStreamBuffer;
-        task->bIsActiveUpdate = ((myproxy_task_t*)argv)->bIsActiveUpdate;
-        task->GetFormFlag = ((myproxy_task_t*)argv)->GetFormFlag;
+        //task->UpStreamBuffer = ((agent_task_t*)argv)->UpStreamBuffer;
+        //task->DownStreamBuffer = ((agent_task_t*)argv)->DownStreamBuffer;
+        task->bIsActiveUpdate = ((agent_task_t*)argv)->bIsActiveUpdate;
+        task->GetFormFlag = ((agent_task_t*)argv)->GetFormFlag;
         task->next = NULL;
     }
 
@@ -851,14 +866,14 @@ int myproxy_threadpool_add_task(myproxy_threadpool_t *pool, CB_FUN handler, void
 
 }
 
-void myproxy_threadpool_destroy(myproxy_threadpool_t *pool)
+void agent_threadpool_destroy(agent_threadpool_t *pool)
 {
 	unsigned int n = 0;
 	volatile unsigned int  lock;
 
 	for (; n < pool->threadnum; n++){
 		lock = 1;
-		if (myproxy_threadpool_add_task(pool, z_threadpool_exit_cb, (void*)&lock) != 0){
+		if (agent_threadpool_add_task(pool, z_threadpool_exit_cb, (void*)&lock) != 0){
 			return;
 		}
 		while (lock){
@@ -906,7 +921,7 @@ void myproxy_threadpool_destroy(myproxy_threadpool_t *pool)
 	free(pool);
 }
 
-int myproxy_thread_add(myproxy_threadpool_t *pool)
+int agent_thread_add(agent_threadpool_t *pool)
 {
 	int ret = 0;
 	if (pthread_mutex_lock(&pool->mutex) != 0) {
@@ -917,7 +932,7 @@ int myproxy_thread_add(myproxy_threadpool_t *pool)
 	return ret;
 }
 
-int myproxy_set_max_tasknum(myproxy_threadpool_t *pool,unsigned int num)
+int agent_set_max_tasknum(agent_threadpool_t *pool,unsigned int num)
 {
 	if (pthread_mutex_lock(&pool->mutex) != 0) {
 		return -1;
@@ -927,7 +942,7 @@ int myproxy_set_max_tasknum(myproxy_threadpool_t *pool,unsigned int num)
     return 0;
 }
 
-int z_conf_check(myproxy_threadpool_conf_t *conf)
+int z_conf_check(agent_threadpool_conf_t *conf)
 {
 	if (conf == NULL){
 		return -1;
@@ -943,7 +958,7 @@ int z_conf_check(myproxy_threadpool_conf_t *conf)
 	return 0;
 }
 
-inline void  z_task_queue_init(myproxy_task_queue_t* task_queue)
+inline void  z_task_queue_init(agent_task_queue_t* task_queue)
 {
 	task_queue->head = NULL;
 	task_queue->tail = &task_queue->head;
@@ -1080,7 +1095,7 @@ void *z_threadpool_save(void* argv)
 	unsigned int exit_flag = 0;
 	pthread_setspecific(key,(void*)&exit_flag);
 
-    myproxy_threadpool_t * pool = (myproxy_threadpool_t *)argv;
+    agent_threadpool_t * pool = (agent_threadpool_t *)argv;
     while (!exit_flag) 
     {
         if (sem_trywait(&pool->UpdatePswDatFileQueueSem) != 0)
@@ -1156,7 +1171,7 @@ void Log(const char* format, ... )
 
 void *z_threadpool_log(void* argv)
 {
-    myproxy_threadpool_t * pool = (myproxy_threadpool_t *)argv;
+    agent_threadpool_t * pool = (agent_threadpool_t *)argv;
 	unsigned int exit_flag = 0;
 	pthread_setspecific(key,(void*)&exit_flag); 
 
@@ -1214,7 +1229,7 @@ REWRITE:
 	pthread_exit(0);
 }
 
-int z_threadpool_create(myproxy_threadpool_t *pool)
+int z_threadpool_create(agent_threadpool_t *pool)
 {
 	unsigned int i = 0;
 	pthread_t  pid, save_pid, log_pid;
@@ -1254,7 +1269,7 @@ int z_threadpool_create(myproxy_threadpool_t *pool)
 	return 0;
 }
 
-int z_thread_add(myproxy_threadpool_t *pool)
+int z_thread_add(agent_threadpool_t *pool)
 {
 	pthread_t  pid;
 	pthread_attr_t attr;
@@ -1484,7 +1499,7 @@ bool SendRequestToUpstream(long appID, char *valueID, int *sockfd)
     return true;
 }
 
-bool GetOnePswFromLocalCache(myproxy_threadpool_t *pool, long appID, char *pswOut)
+bool GetOnePswFromLocalCache(agent_threadpool_t *pool, long appID, char *pswOut)
 {
     pthread_mutex_lock(&pool->LocalPswCacheQueueMutex);
     if (TAILQ_EMPTY(&pool->LocalPswCacheQueue)) {
@@ -1509,7 +1524,7 @@ bool GetOnePswFromLocalCache(myproxy_threadpool_t *pool, long appID, char *pswOu
     return true;
 }
 
-bool ProcessPswInfoFromUpstream(myproxy_threadpool_t *pool, myproxy_task_t *ptask)
+bool ProcessPswInfoFromUpstream(agent_threadpool_t *pool, agent_task_t *ptask)
 {
     bool bRet;
     char pswSendData[128] = {0};
@@ -2120,7 +2135,7 @@ VERIFICATION:
 
 }
 
-void ChangeVariableNetworkState(myproxy_threadpool_t *pool, pthread_t pfd, bool isOnline)
+void ChangeVariableNetworkState(agent_threadpool_t *pool, pthread_t pfd, bool isOnline)
 {
     int i;
     pthread_mutex_lock(&pool->ThreadFdCountMutex);
@@ -2153,7 +2168,7 @@ void ChangeVariableNetworkState(myproxy_threadpool_t *pool, pthread_t pfd, bool 
     pthread_mutex_unlock(&pool->ThreadFdCountMutex);
 }
 
-inline void z_change_maxtask_num(myproxy_threadpool_t *pool, unsigned int num)
+inline void z_change_maxtask_num(agent_threadpool_t *pool, unsigned int num)
 {
 	pool->tasks.maxtasknum = num;
 	if (pool->tasks.maxtasknum < 1)
@@ -2162,7 +2177,7 @@ inline void z_change_maxtask_num(myproxy_threadpool_t *pool, unsigned int num)
 	}
 }
 
-bool NotifyUpdateCache(myproxy_threadpool_t *pool)
+bool NotifyUpdateCache(agent_threadpool_t *pool)
 {
     int ret = pthread_mutex_trylock(&pool->OnceUpdateMutex);
     if (ret == 0) {
@@ -2175,7 +2190,7 @@ bool NotifyUpdateCache(myproxy_threadpool_t *pool)
     return true;
 }
 
-bool ReplaceLocalPswCache(char *appID, char *valueID, char *pswInfo, myproxy_threadpool_t *pool)
+bool ReplaceLocalPswCache(char *appID, char *valueID, char *pswInfo, agent_threadpool_t *pool)
 {
     long lAppID = atol(appID);
 
@@ -2482,10 +2497,10 @@ bool ParseRecvInfo(char *appID, char *valueID, char *pswReturn,char *pswIn, int 
     return true;
 }
 
-bool ActiveUpgradeLocalPswCache(char *buf, void *arg, myproxy_threadpool_t *pool)
+bool ActiveUpgradeLocalPswCache(char *buf, void *arg, agent_threadpool_t *pool)
 {
     char appID[80] = {0}, valueID[128] = {0}, pswSendData[256] = {0};
-	myproxy_task_t *ptask = (myproxy_task_t *)arg;
+	agent_task_t *ptask = (agent_task_t *)arg;
     bool bRet = ParseRecvInfo(appID, valueID, pswSendData, buf, 0, NULL, 0);
     //bool bRet = ParseRecvInfo(appID, valueID, pswSendData, buf, 0, ptask->SeqNumber);
     if (bRet) {
@@ -2496,7 +2511,7 @@ bool ActiveUpgradeLocalPswCache(char *buf, void *arg, myproxy_threadpool_t *pool
     return true;
 }
 
-void ReActiveUpdateLocalCache(char *buf, myproxy_threadpool_t* pool)
+void ReActiveUpdateLocalCache(char *buf, agent_threadpool_t* pool)
 {
     char appID[80] = {0}, valueID[128] = {0}, pswSendData[256] = {0};
     bool bRet = ParseRecvInfo(appID, valueID, pswSendData, buf, 2, NULL, 0);
@@ -2505,7 +2520,7 @@ void ReActiveUpdateLocalCache(char *buf, myproxy_threadpool_t* pool)
     }
 }
 
-void SendDataToDownstream(char *pswSendData, myproxy_task_t *ptask)
+void SendDataToDownstream(char *pswSendData, agent_task_t *ptask)
 {
     /*
     if (ptask->DownStreamPfd == NULL) {
@@ -2538,7 +2553,7 @@ void SendDataToDownstream(char *pswSendData, myproxy_task_t *ptask)
     return ;
 }
 
-void ProcessNewPswFromUpstream(char *buf, myproxy_threadpool_t *pool, myproxy_task_t *ptask)
+void ProcessNewPswFromUpstream(char *buf, agent_threadpool_t *pool, agent_task_t *ptask)
 {
     char appID[80] = {0}, valueID[128] = {0}, pswSendData[256] = {0};
     POOL = pool;
@@ -2561,9 +2576,9 @@ void ProcessNewPswFromUpstream(char *buf, myproxy_threadpool_t *pool, myproxy_ta
     }
 }
 
-bool ReadPvaPoll(struct pollfd *pfd, int *needrelogin, myproxy_threadpool_t *pool, void *arg, int sendready)
+bool ReadPvaPoll(struct pollfd *pfd, int *needrelogin, agent_threadpool_t *pool, void *arg, int sendready)
 {
-	myproxy_task_t *ptask = (myproxy_task_t *)arg;
+	agent_task_t *ptask = (agent_task_t *)arg;
     int selectfd = pfd->fd;
     struct timeval tmWait;
     fd_set rset;
@@ -2728,8 +2743,8 @@ void *z_threadpool_cycle(void* argv)
     int err = pthread_detach( pid );
 	unsigned int exit_flag = 0;
 	sigset_t set;
-	myproxy_task_t *ptask = NULL;
-	myproxy_threadpool_t *pool = (myproxy_threadpool_t*)argv;
+	agent_task_t *ptask = NULL;
+	agent_threadpool_t *pool = (agent_threadpool_t*)argv;
 
     //ChangeThreadFdCount();
     pthread_mutex_lock(&pool->ThreadFdCountMutex);
